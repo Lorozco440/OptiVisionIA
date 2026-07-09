@@ -1,26 +1,169 @@
 @import "tailwindcss";
-
+/* ── Variables de tema ─────────────────────────────────────────────────────── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg:          #f8fafc;
+  --bg-card:     #ffffff;
+  --bg-nav:      #1d4ed8;
+  --text:        #0f172a;
+  --text-muted:  #64748b;
+  --border:      #e2e8f0;
+  --input-bg:    #ffffff;
+  --input-text:  #0f172a;
+  --input-border:#cbd5e1;
+  --ring:        #3b82f6;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+[data-theme="dark"] {
+  --bg:          #0f172a;
+  --bg-card:     #1e293b;
+  --bg-nav:      #1e3a8a;
+  --text:        #f1f5f9;
+  --text-muted:  #94a3b8;
+  --border:      #334155;
+  --input-bg:    #1e293b;
+  --input-text:  #f1f5f9;
+  --input-border:#475569;
+  --ring:        #60a5fa;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* ── Base ──────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--bg);
+  color: var(--text);
+  transition: background-color 0.2s, color 0.2s;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Inputs, selects, textareas — siempre legibles ─────────────────────────── */
+input,
+select,
+textarea {
+  background-color: var(--input-bg)    !important;
+  color:            var(--input-text)  !important;
+  border-color:     var(--input-border)!important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted) !important;
+  opacity: 1;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ring);
+  border-color: var(--ring) !important;
+}
+
+/* ── Tarjetas ───────────────────────────────────────────────────────────────── */
+.card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+
+/* ── Tabla ──────────────────────────────────────────────────────────────────── */
+.tabla th {
+  background-color: var(--bg);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.75rem 1rem;
+  text-align: left;
+}
+
+.tabla td {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
+.tabla tr:hover td {
+  background-color: color-mix(in srgb, var(--bg-card) 80%, var(--bg));
+}
+
+/* ── Botones ────────────────────────────────────────────────────────────────── */
+.btn-primary {
+  background-color: #1d4ed8;
+  color: #ffffff;
+  padding: 0.5rem 1.25rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.btn-primary:hover    { background-color: #1e40af; }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-secondary {
+  background-color: transparent;
+  color: var(--text);
+  padding: 0.5rem 1.25rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.btn-secondary:hover { background-color: var(--bg); }
+
+/* ── Badges de estado ───────────────────────────────────────────────────────── */
+.badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+  text-transform: capitalize;
+  letter-spacing: 0.02em;
+}
+.badge-programada { background: #fef9c3; color: #854d0e; }
+.badge-confirmada { background: #dbeafe; color: #1e40af; }
+.badge-atendida   { background: #dcfce7; color: #166534; }
+.badge-cancelada  { background: #fee2e2; color: #991b1b; }
+.badge-no_asistio { background: #f1f5f9; color: #475569; }
+
+/* ── Alertas ────────────────────────────────────────────────────────────────── */
+.alerta-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+}
+
+/* ── Responsivo móvil ───────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  /* Tablas anchas: la tarjeta se vuelve desplazable en horizontal y la tabla
+     conserva un ancho mínimo para no aplastar las columnas (aparece la barra). */
+  .card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tabla { min-width: 560px; }
+
+  /* Menos padding en celdas para aprovechar el ancho del teléfono. */
+  .tabla th,
+  .tabla td { padding: 0.6rem 0.7rem; }
+
+  /* Botones a ancho cómodo para el pulgar. */
+  .btn-primary,
+  .btn-secondary { padding: 0.55rem 1rem; }
+}
+
+/* ── Impresión ──────────────────────────────────────────────────────────────── */
+@media print {
+  .no-print { display: none !important; }
+  nav        { display: none !important; }
+  body       { background: white !important; color: black !important; }
+  .boleta    { width: 100%; padding: 0; margin: 0; }
 }
