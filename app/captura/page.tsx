@@ -1,4 +1,7 @@
 // frontend/app/captura/page.tsx
+// Modo B (video + selección de mejor frame) removido: el marco teórico
+// (Akkara et al., 2019) describe captura de imagen estática con control
+// manual de iluminación y enfoque — no selección automática de frames.
 
 'use client'
 
@@ -6,16 +9,11 @@ import { Suspense, useEffect, useState, useCallback, useRef, memo } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Cropper, { Area } from 'react-easy-crop'
 import { supabase } from '@/lib/supabase'
-import {
-  iniciarStreamCamara, detenerStream, capturarMejoresFrames, dataUrlABlob,
-  type FrameCapturado,
-} from '@/lib/capturaVideo'
 
 const MONO = "'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace"
 
 type EstadoVista =
-  | 'validando' | 'lista' | 'grabando' | 'eligiendo' | 'recortar'
-  | 'subiendo' | 'enviada' | 'invalida' | 'error'
+  | 'validando' | 'lista' | 'recortar' | 'subiendo' | 'enviada' | 'invalida' | 'error'
 type Ojo = 'OD' | 'OI'
 
 type RegistroOjo = {
@@ -69,11 +67,7 @@ function CapturaInner() {
   const [citaId, setCitaId] = useState<string | null>(null)
 
   // Bloquea el pinch-zoom nativo del navegador SOLO mientras esta página
-  // está montada. El Cropper (react-easy-crop) maneja su propio zoom vía
-  // JS; si el navegador también intenta hacer zoom de página con el mismo
-  // gesto de dos dedos, ambos compiten y se ve como un destello/flash al
-  // recortar. Al salir de /captura, se restaura el viewport original para
-  // no afectar el zoom nativo en el resto de la app (pacientes, citas, etc).
+  // está montada, para evitar que compita con el Cropper al ajustar la imagen.
   useEffect(() => {
     const meta = document.querySelector('meta[name="viewport"]')
     const contenidoOriginal = meta?.getAttribute('content') ?? 'width=device-width, initial-scale=1'
@@ -88,17 +82,8 @@ function CapturaInner() {
   const [vista, setVista] = useState<EstadoVista>('validando')
   const [pendientes, setPendientes] = useState<RegistroOjo[]>([])
   const [mensaje, setMensaje] = useState('')
-
   const [imageSrc, setImageSrc] = useState<string | null>(null)
 
-  // ── Modo B: video en vivo + selección del mejor frame ──────────────
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const streamRef = useRef<MediaStream | null>(null)
-  const [frames, setFrames] = useState<FrameCapturado[]>([])
-  const [errorCamara, setErrorCamara] = useState<string | null>(null)
-  const [progresoGrabacion, setProgresoGrabacion] = useState(0) // 0-100
-
-  // El registro que se está capturando ahora es siempre pendientes[0].
   const registroActual = pendientes[0] ?? null
 
   useEffect(() => {
@@ -109,7 +94,7 @@ function CapturaInner() {
         .from('analisis')
         .select('id, ojo, estado, cita_id')
         .eq('codigo_sesion', codigoSesion)
-        .order('ojo', { ascending: true }) // 'OD' < 'OI' alfabéticamente, así OD siempre va primero
+        .order('ojo', { ascending: true }) // 'OD' < 'OI' — OD siempre va primero
 
       if (error) { setVista('error'); setMensaje('Error al validar la sesión: ' + error.message); return }
       if (!data || data.length === 0) { setVista('invalida'); setMensaje('La sesión no existe o expiró.'); return }
@@ -130,13 +115,6 @@ function CapturaInner() {
     validar()
   }, [codigoSesion])
 
-  // Limpieza: si el componente se desmonta mientras la cámara está
-  // activa (el usuario navega fuera a medio proceso), se libera el
-  // stream para no dejar la cámara encendida en segundo plano.
-  useEffect(() => {
-    return () => { detenerStream(streamRef.current) }
-  }, [])
-
   function onArchivo(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -146,74 +124,6 @@ function CapturaInner() {
       setVista('recortar')
     }
     reader.readAsDataURL(file)
-  }
-
-  async function iniciarModoVideo() {
-    setErrorCamara(null)
-    try {
-      const stream = await iniciarStreamCamara()
-      streamRef.current = stream
-      setVista('grabando')
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-          videoRef.current.play().catch(() => {})
-        }
-      }, 0)
-    } catch (err: any) {
-      setErrorCamara(
-        err?.name === 'NotAllowedError'
-          ? 'Permiso de cámara denegado. Puedes usar "Tomar fotografía" en su lugar.'
-          : 'No se pudo iniciar la cámara. Puedes usar "Tomar fotografía" en su lugar.'
-      )
-    }
-  }
-
-  async function grabarYElegir() {
-    const video = videoRef.current
-    if (!video) return
-
-    if (video.readyState < 2) {
-      await new Promise<void>((resolve) => {
-        video.onloadeddata = () => resolve()
-        setTimeout(resolve, 800)
-      })
-    }
-
-    setProgresoGrabacion(0)
-    const duracionMs = 3000
-    const intervaloMs = 200
-    const pasos = Math.floor(duracionMs / intervaloMs)
-    let pasoActual = 0
-    const avance = setInterval(() => {
-      pasoActual++
-      setProgresoGrabacion(Math.min(100, Math.round((pasoActual / pasos) * 100)))
-    }, intervaloMs)
-
-    const mejores = await capturarMejoresFrames(video, { duracionMs, intervaloMs, cantidadFinal: 4 })
-    clearInterval(avance)
-    detenerStream(streamRef.current)
-    streamRef.current = null
-
-    setFrames(mejores)
-    setVista('eligiendo')
-  }
-
-  function cancelarModoVideo() {
-    detenerStream(streamRef.current)
-    streamRef.current = null
-    setVista('lista')
-  }
-
-  function elegirFrame(frame: FrameCapturado) {
-    setImageSrc(frame.dataUrl)
-    setFrames([])
-    setVista('recortar')
-  }
-
-  function volverAGrabar() {
-    setFrames([])
-    iniciarModoVideo()
   }
 
   // Recibe el recorte final ya resuelto desde el componente aislado.
@@ -317,78 +227,6 @@ function CapturaInner() {
     )
   }
 
-  if (vista === 'grabando') {
-    return (
-      <main style={{ minHeight: '100dvh', background: '#000', color: '#fff', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ position: 'relative', width: '100%', aspectRatio: '1 / 1', background: '#000', flexShrink: 0, touchAction: 'none' }}>
-          <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          {/* corchetes de encuadre */}
-          {[
-            { top: 24, left: 24, bt: true, bl: true }, { top: 24, right: 24, bt: true, br: true },
-            { bottom: 24, left: 24, bb: true, bl: true }, { bottom: 24, right: 24, bb: true, br: true },
-          ].map((c, i) => (
-            <div key={i} style={{
-              position: 'absolute', top: c.top, bottom: c.bottom, left: c.left, right: c.right, width: 30, height: 30,
-              borderTop: c.bt ? '2px solid rgba(255,255,255,0.85)' : undefined,
-              borderBottom: c.bb ? '2px solid rgba(255,255,255,0.85)' : undefined,
-              borderLeft: c.bl ? '2px solid rgba(255,255,255,0.85)' : undefined,
-              borderRight: c.br ? '2px solid rgba(255,255,255,0.85)' : undefined,
-            }} />
-          ))}
-          {progresoGrabacion > 0 && (
-            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 6, background: 'rgba(255,255,255,0.2)' }}>
-              <div style={{ width: `${progresoGrabacion}%`, height: '100%', background: '#38bdf8', transition: 'width 0.15s linear' }} />
-            </div>
-          )}
-        </div>
-        <div style={{ width: '100%', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <p style={{ fontSize: '0.9rem', color: '#cdd9ec', lineHeight: 1.5 }}>
-            {progresoGrabacion > 0
-              ? 'Capturando, mantén el teléfono estable…'
-              : 'Encuadra el ojo y mantén el teléfono firme. Se tomarán varias capturas para elegir la más nítida.'}
-          </p>
-          <div style={{ display: 'flex', gap: '0.75rem' }}>
-            <button onClick={cancelarModoVideo} disabled={progresoGrabacion > 0}
-              style={{ flex: 1, padding: '0.95rem', borderRadius: 13, border: '1px solid rgba(148,197,255,0.2)', background: 'transparent', color: 'inherit', fontWeight: 600, opacity: progresoGrabacion > 0 ? 0.5 : 1 }}>
-              Cancelar
-            </button>
-            <button onClick={grabarYElegir} disabled={progresoGrabacion > 0}
-              style={{ flex: 1, padding: '0.95rem', borderRadius: 13, border: 'none', background: progresoGrabacion > 0 ? '#334155' : '#1d4ed8', color: '#fff', fontWeight: 600 }}>
-              {progresoGrabacion > 0 ? 'Capturando…' : 'Iniciar captura'}
-            </button>
-          </div>
-        </div>
-      </main>
-    )
-  }
-
-  if (vista === 'eligiendo') {
-    return (
-      <main style={{ minHeight: '100dvh', color: '#e6edf7', display: 'flex', flexDirection: 'column', padding: '1.5rem',
-        background: 'radial-gradient(120% 70% at 50% 0%, #131f38 0%, #0a1120 60%, #070b14 100%)' }}>
-        <h1 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.25rem' }}>Elige la mejor toma</h1>
-        <p style={{ fontSize: '0.85rem', color: '#9fb0c9', marginBottom: '1.1rem' }}>Ordenadas de más a menos nítida. Toca la que prefieras.</p>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', flex: 1, alignContent: 'start' }}>
-          {frames.map((f, idx) => (
-            <button key={f.id} onClick={() => elegirFrame(f)}
-              style={{ position: 'relative', padding: 0, border: idx === 0 ? '2.5px solid #38bdf8' : '1px solid #2a3850', borderRadius: 12, overflow: 'hidden', cursor: 'pointer', background: '#000' }}>
-              <img src={f.dataUrl} alt={`Toma ${idx + 1}`} style={{ width: '100%', display: 'block', aspectRatio: '1 / 1', objectFit: 'cover' }} />
-              {idx === 0 && (
-                <span style={{ position: 'absolute', top: 7, left: 7, fontFamily: MONO, fontSize: '0.6rem', fontWeight: 700, background: '#38bdf8', color: '#06283d', padding: '0.18rem 0.5rem', borderRadius: 999 }}>
-                  Más nítida
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-        <button onClick={volverAGrabar}
-          style={{ marginTop: '1rem', padding: '0.95rem', borderRadius: 13, border: '1px solid rgba(148,197,255,0.2)', background: 'transparent', color: 'inherit', fontWeight: 600 }}>
-          Ninguna me convence, grabar de nuevo
-        </button>
-      </main>
-    )
-  }
-
   if (vista === 'recortar' && imageSrc) {
     return (
       <RecortarVista
@@ -435,25 +273,14 @@ function CapturaInner() {
           Acerca la cámara al ojo, con buena luz y enfoque. Evita reflejos directos.
         </p>
 
-        {errorCamara && (
-          <p style={{ color: '#fb7185', fontSize: '0.85rem', marginBottom: '1rem', textAlign: 'left' }}>{errorCamara}</p>
-        )}
-
         {vista === 'subiendo' ? (
           <p style={{ fontFamily: MONO, color: '#7c8aa5' }}>Enviando imagen…</p>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
-            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem', padding: '1rem', borderRadius: 14, background: '#1d4ed8', color: '#fff', fontWeight: 600, fontSize: '1.05rem', cursor: 'pointer' }}>
-              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" /></svg>
-              Tomar fotografía
-              <input type="file" accept="image/*" capture="environment" onChange={onArchivo} style={{ display: 'none' }} />
-            </label>
-            <button onClick={iniciarModoVideo}
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem', padding: '0.9rem', borderRadius: 14, border: '1px solid rgba(148,197,255,0.2)', background: 'transparent', color: '#cdd9ec', fontWeight: 600, fontSize: '0.92rem', cursor: 'pointer' }}>
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
-              Grabar y elegir mejor toma
-            </button>
-          </div>
+          <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem', padding: '1rem', borderRadius: 14, background: '#1d4ed8', color: '#fff', fontWeight: 600, fontSize: '1.05rem', cursor: 'pointer' }}>
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" /></svg>
+            Tomar fotografía
+            <input type="file" accept="image/*" capture="environment" onChange={onArchivo} style={{ display: 'none' }} />
+          </label>
         )}
       </div>
     </main>
